@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Style Documentation Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .aurora-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle at 20% 20%, hsla(280, 100%, 75%, 0.15), transparent 40%),
+                        radial-gradient(circle at 80% 70%, hsla(200, 100%, 70%, 0.15), transparent 40%);
+            animation: aurora 20s infinite linear;
+            z-index: -1;
+        }
+        
+        @keyframes aurora {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .nav-list::-webkit-scrollbar {
+            height: 4px;
+        }
+        .nav-list::-webkit-scrollbar-thumb {
+            background-color: #30363d;
+        }
+        
+        .annotation {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+    <div class="aurora-bg"></div>
+    <header id="header" class="sticky top-0 z-40 bg-gray-900/50 backdrop-blur-lg border-b border-gray-800 transition-transform duration-300">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <a href="#" class="text-lg font-bold" data-action="goHome">
+                    <h1>Style Documentation Tool</h1>
+                </a>
+                <div class="flex items-center space-x-2">
+                    <button id="annotate-btn" data-action="toggleAnnotations" class="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors">
+                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        <span class="hidden sm:inline">Annotate</span>
+                    </button>
+                    <button data-action="save" class="px-3 py-2 text-sm font-medium rounded-lg bg-gray-800 hover:bg-gray-700">Save</button>
+                    <button data-action="load" class="px-3 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">Load</button>
+                    <input type="file" id="file-input" class="hidden" accept=".json">
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container mx-auto px-4">
+        <div class="main-grid md:grid md:grid-cols-[240px_1fr] md:gap-8 py-6">
+            <aside class="sidebar md:sticky top-24 self-start">
+                <nav>
+                    <ul class="nav-list flex flex-row md:flex-col md:space-y-1 overflow-x-auto md:overflow-x-visible pb-4 md:pb-0 space-x-2 md:space-x-0" id="nav-list"></ul>
+                </nav>
+            </aside>
+            <main class="content" id="content"></main>
+        </div>
+    </div>
+    
+    <div id="modal-container"></div>
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col space-y-4"></div>
+
+    <template id="section-template">
+        <section>
+            <header class="mb-8">
+                <h2 class="section-title text-3xl font-extrabold tracking-tight"></h2>
+                <p class="section-description mt-2 text-lg text-gray-400"></p>
+            </header>
+            <div class="content-container"></div>
+        </section>
+    </template>
+    
+    <template id="modal-template">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true">
+            <div class="bg-gray-800 rounded-lg shadow-xl max-w-lg w-full m-4">
+                <header class="flex justify-between items-center p-4 border-b border-gray-700">
+                    <h3 class="text-lg font-bold"></h3>
+                    <button data-action="closeModal" class="p-1 rounded-full hover:bg-gray-700">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </header>
+                <div class="p-6 max-h-[70vh] overflow-y-auto"></div>
+                <footer class="flex justify-between items-center p-4 bg-gray-900/50 rounded-b-lg"></footer>
+            </div>
+        </div>
+    </template>
+    
+    <script>
+    const App = (() => {
+        let state = {
+            activeSectionId: 'colors',
+            annotationMode: false,
+            currentEditingIndex: null,
+            documentation: {
+                colors: [ { name: 'Primary', value: '#5f49f5' }, { name: 'Text', value: '#0f172a' }, { name: 'Surface', value: '#ffffff' }, { name: 'Success', value: '#10b981' }, { name: 'Warning', value: '#f59e0b' }, { name: 'Error', value: '#ef4444' } ],
+                typography: [ { name: 'Heading 1', size: '2.5rem', weight: '800' }, { name: 'Body Text', size: '1rem', weight: '400' } ],
+                components: [ 
+                    { name: 'Primary Button', preview: `<button class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">Primary Button</button>`, code: `<button class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700">Primary Button</button>` }, 
+                    { name: 'Alert', preview: `<div class="p-4 bg-blue-900/50 border-l-4 border-blue-500 text-blue-300 rounded-r-lg">This is an alert message.</div>`, code: `<div class="p-4 bg-blue-100 border-l-4 border-blue-500 text-blue-700 rounded-r-lg">...</div>` } 
+                ],
+                annotations: []
+            }
+        };
+
+        const sections = [
+            { id: 'colors', name: 'Colors', icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>`, title: 'Color Palette', description: 'Your brand colors, complete with accessibility contrast ratios.' },
+            { id: 'typography', name: 'Typography', icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-12H4"></path></svg>`, title: 'Typography', description: 'Font styles and sizes used throughout the application.' },
+            { id: 'components', name: 'Components', icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>`, title: 'Component Library', description: 'Interactive components with live previews and code samples.' }
+        ];
+
+        const utils = {
+            getLuminance(hex) {
+                const rgb = parseInt(hex.slice(1), 16); let [r, g, b] = [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff];
+                [r, g, b] = [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            },
+            getContrastRatio(c1, c2) {
+                const l1 = this.getLuminance(c1), l2 = this.getLuminance(c2);
+                return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+            },
+            showToast(message, type = 'success') {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = `p-4 rounded-lg shadow-lg text-white font-semibold flex items-center space-x-3 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+                toast.innerHTML = `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">${type === 'success' ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>' : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>'}</svg><span>${message}</span>`;
+                container.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+            },
+            copyToClipboard(text) {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    utils.showToast('Copied to clipboard!');
+                } catch (err) {
+                    utils.showToast('Copy failed!', 'error');
+                }
+                document.body.removeChild(textarea);
+            },
+            escapeHTML(str = '') { return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+        };
+        
+        const ui = {
+            render() { this.renderNav(); this.renderContent(); this.renderAnnotations(); },
+            renderNav() {
+                document.getElementById('nav-list').innerHTML = sections.map(s => `
+                    <li><a href="#${s.id}" class="nav-link flex items-center space-x-3 px-3 py-2 rounded-lg font-medium text-gray-400 hover:bg-gray-800" data-id="${s.id}">${s.icon}<span>${s.name}</span></a></li>
+                `).join('');
+                this.updateActiveNav();
+            },
+            updateActiveNav() {
+                document.querySelectorAll('.nav-link').forEach(link => {
+                    const isActive = link.dataset.id === state.activeSectionId;
+                    link.classList.toggle('bg-gray-800', isActive);
+                    link.classList.toggle('text-indigo-400', isActive);
+                });
+            },
+            renderContent() {
+                const sectionData = sections.find(s => s.id === state.activeSectionId);
+                const template = document.getElementById('section-template').content.cloneNode(true);
+                template.querySelector('.section-title').textContent = sectionData.title;
+                template.querySelector('.section-description').textContent = sectionData.description;
+                const container = template.querySelector('.content-container');
+                this[`render_${sectionData.id}`](container);
+                document.getElementById('content').innerHTML = '';
+                document.getElementById('content').appendChild(template);
+            },
+            render_colors(container) { container.classList.add('grid', 'grid-cols-[repeat(auto-fill,minmax(220px,1fr))]', 'gap-6'); container.prepend(this.createAddCard('color')); state.documentation.colors.forEach((c, i) => container.appendChild(this.createCard('color', c, i))); },
+            render_typography(container) { container.classList.add('grid', 'grid-cols-[repeat(auto-fill,minmax(220px,1fr))]', 'gap-6'); container.prepend(this.createAddCard('typography')); state.documentation.typography.forEach((t, i) => container.appendChild(this.createCard('typography', t, i))); },
+            render_components(container) { container.classList.add('grid', 'grid-cols-1', 'gap-8'); container.prepend(this.createAddCard('component')); state.documentation.components.forEach((c, i) => container.appendChild(this.createCard('component', c, i))); },
+            
+            createCard(type, data, index) {
+                const item = document.createElement('div');
+                item.dataset.index = index; item.dataset.type = type;
+                
+                if (type === 'color') {
+                    item.className = 'bg-gray-800 rounded-lg shadow-md overflow-hidden cursor-pointer';
+                    item.dataset.action = `openModal`;
+                    item.innerHTML = `<div class="h-28" style="background:${data.value}"></div><div class="p-4"><div class="font-semibold">${utils.escapeHTML(data.name)}</div><div class="text-sm text-gray-400 font-mono" data-action="copyColor" data-value="${data.value}">${data.value}</div></div>`;
+                } else if (type === 'typography') {
+                    item.className = 'bg-gray-800 rounded-lg shadow-md p-6 cursor-pointer';
+                    item.dataset.action = `openModal`;
+                    let pxValue = '';
+                    if (data.size && data.size.includes('rem')) {
+                        const remValue = parseFloat(data.size);
+                        if (!isNaN(remValue)) pxValue = ` / ${remValue * 16}px`;
+                    }
+                    item.innerHTML = `<h3 class="font-bold text-lg mb-4">${utils.escapeHTML(data.name)}</h3><p style="font-size:${data.size}; font-weight:${data.weight};">Aa Bb Cc</p><p class="text-sm text-gray-400 mt-4 font-mono">${data.size} / ${data.weight}${pxValue}</p>`;
+                } else if (type === 'component') {
+                    item.className = 'bg-gray-800 rounded-lg shadow-md overflow-hidden';
+                    item.innerHTML = `
+                        <div class="p-6">
+                            <h3 class="font-bold text-lg mb-4 cursor-pointer" data-action="openModal" data-type="component" data-index="${index}">${utils.escapeHTML(data.name)}</h3>
+                            <div class="p-8 bg-gray-900/50 rounded-lg flex items-center justify-center">${data.preview}</div>
+                        </div>
+                        <div class="code-block-container bg-black/50 rounded-b-lg">
+                            <div class="flex justify-between items-center px-4 py-2 border-b border-gray-700/50">
+                                <span class="text-xs font-semibold text-gray-400">HTML</span>
+                                <button data-action="copyCode" class="px-2 py-1 text-xs font-semibold rounded bg-gray-600 hover:bg-gray-500 text-white">Copy</button>
+                            </div>
+                            <div class="p-4 overflow-x-auto">
+                                <pre><code class="language-html text-sm text-white">${utils.escapeHTML(data.code)}</code></pre>
+                            </div>
+                        </div>
+                    `;
+                }
+                return item;
+            },
+
+            createAddCard(type) {
+                const addCard = document.createElement('div');
+                addCard.className = 'border-2 border-dashed border-gray-700 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-indigo-500 hover:text-indigo-500 cursor-pointer min-h-[180px]';
+                addCard.dataset.action = 'openModal'; addCard.dataset.type = type;
+                addCard.innerHTML = `<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg><h3 class="mt-2 font-semibold">Add New</h3>`;
+                return addCard;
+            },
+            
+            openModal(type, index = null) {
+                state.currentEditingIndex = index;
+                const isEditing = index !== null;
+                const key = type === 'typography' ? 'typography' : type + 's';
+                const data = isEditing ? state.documentation[key][index] : {};
+                const modalTemplate = document.getElementById('modal-template').content.cloneNode(true);
+                const modal = modalTemplate.querySelector('[role="dialog"]');
+                modal.querySelector('h3').textContent = `${isEditing ? 'Edit' : 'Add'} ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+                
+                let bodyHtml = '<form class="space-y-6">';
+                if (type === 'color') {
+                    bodyHtml += `<div><label for="modal-name" class="block text-sm font-medium text-gray-300">Color Name</label><input type="text" id="modal-name" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" value="${utils.escapeHTML(data.name || '')}"></div><div><label for="modal-value" class="block text-sm font-medium text-gray-300">Color Value</label><input type="color" id="modal-value" class="mt-1 block w-full h-12" value="${data.value || '#000000'}"></div><div id="contrast-checker" class="space-y-4"></div>`;
+                }
+                if (type === 'typography') bodyHtml += `<div><label for="modal-name" class="block text-sm font-medium text-gray-300">Name</label><input type="text" id="modal-name" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" value="${utils.escapeHTML(data.name || '')}"></div><div><label for="modal-size" class="block text-sm font-medium text-gray-300">Size (e.g., 1.5rem)</label><input type="text" id="modal-size" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" value="${data.size || '1rem'}"></div><div><label for="modal-weight" class="block text-sm font-medium text-gray-300">Weight (e.g., 400)</label><input type="text" id="modal-weight" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" value="${data.weight || '400'}"></div>`;
+                if (type === 'component') bodyHtml += `<div><label for="modal-name" class="block text-sm font-medium text-gray-300">Name</label><input type="text" id="modal-name" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500" value="${utils.escapeHTML(data.name || '')}"></div><div class="relative"><label for="modal-preview" class="block text-sm font-medium text-gray-300">Preview HTML</label><textarea id="modal-preview" rows="4" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 font-mono">${utils.escapeHTML(data.preview || '')}</textarea><button type="button" data-action="copyTextarea" data-target-id="modal-preview" class="absolute top-8 right-2 px-2 py-1 text-xs font-semibold rounded bg-gray-600 hover:bg-gray-500 text-white">Copy</button></div><div class="relative"><label for="modal-code" class="block text-sm font-medium text-gray-300">Code Snippet HTML</label><textarea id="modal-code" rows="4" class="mt-1 block w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 font-mono">${utils.escapeHTML(data.code || '')}</textarea><button type="button" data-action="copyTextarea" data-target-id="modal-code" class="absolute top-8 right-2 px-2 py-1 text-xs font-semibold rounded bg-gray-600 hover:bg-gray-500 text-white">Copy</button></div>`;
+                bodyHtml += '</form>';
+                modal.querySelector('.p-6').innerHTML = bodyHtml;
+                const footer = modal.querySelector('footer');
+                if(isEditing) footer.innerHTML += `<button class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700" data-action="delete" data-type="${type}">Delete</button>`;
+                footer.innerHTML += `<button class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700" data-action="saveData" data-type="${type}">${isEditing ? 'Update' : 'Add'}</button>`;
+                document.getElementById('modal-container').appendChild(modalTemplate);
+                if (type === 'color') this.updateContrastCheck(data.value || '#000000');
+            },
+            closeModal() {
+                const modal = document.querySelector('#modal-container > div');
+                if (modal) modal.remove();
+            },
+            updateContrastCheck(color) {
+                const checker = document.getElementById('contrast-checker');
+                if(!checker) return;
+                const whiteContrast = utils.getContrastRatio(color, '#ffffff');
+                const blackContrast = utils.getContrastRatio(color, '#000000');
+                const getBadge = (ratio, threshold) => {
+                    const pass = ratio >= threshold;
+                    return `<span class="px-2 py-0.5 text-xs font-bold rounded-full ${pass ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}">${pass ? 'Pass' : 'Fail'}</span>`;
+                };
+                const results = [
+                    { label: 'vs White', contrast: whiteContrast },
+                    { label: 'vs Black', contrast: blackContrast }
+                ];
+                let html = '<h4 class="font-semibold">WCAG Contrast</h4>';
+                results.forEach(result => {
+                    html += `
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <h5 class="font-semibold text-sm mb-2">${result.label} <span class="font-mono bg-gray-900 px-2 py-1 rounded-md text-xs">${result.contrast.toFixed(2)}:1</span></h5>
+                            <div class="grid grid-cols-3 gap-2 text-sm">
+                                <div class="text-gray-400">Normal (AA)</div>
+                                <div class="text-right font-mono text-xs pr-2">4.5:1</div>
+                                <div class="text-right">${getBadge(result.contrast, 4.5)}</div>
+                                <div class="text-gray-400">Normal (AAA)</div>
+                                <div class="text-right font-mono text-xs pr-2">7:1</div>
+                                <div class="text-right">${getBadge(result.contrast, 7)}</div>
+                                <div class="text-gray-400">Large (AA)</div>
+                                <div class="text-right font-mono text-xs pr-2">3:1</div>
+                                <div class="text-right">${getBadge(result.contrast, 3)}</div>
+                                <div class="text-gray-400">Large (AAA)</div>
+                                <div class="text-right font-mono text-xs pr-2">4.5:1</div>
+                                <div class="text-right">${getBadge(result.contrast, 4.5)}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                checker.innerHTML = html;
+            },
+            renderAnnotations() {
+                document.querySelectorAll('.annotation').forEach(el => el.remove());
+                if (!state.annotationMode) return;
+                state.documentation.annotations.forEach(note => {
+                    const div = document.createElement('div');
+                    div.className = 'annotation absolute bg-yellow-800/80 border-2 border-yellow-400 p-3 rounded-lg shadow-lg z-30 min-w-[220px] cursor-move';
+                    div.style.left = note.x + 'px'; div.style.top = note.y + 'px';
+                    div.dataset.id = note.id;
+                    div.innerHTML = `<div class="annotation-header flex justify-between items-center mb-2 cursor-grab active:cursor-grabbing"><span class="font-bold text-xs text-yellow-200">${utils.escapeHTML(note.author)}</span><button class="annotation-delete text-red-500 hover:text-red-700" data-action="deleteAnnotation" data-id="${note.id}"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button></div><textarea class="annotation-text w-full p-2 bg-yellow-700/50 rounded text-sm text-gray-200" data-action="updateAnnotation" data-id="${note.id}" placeholder="Add your note...">${utils.escapeHTML(note.text)}</textarea>`;
+                    document.body.appendChild(div);
+                });
+            }
+        };
+        
+        function setupEventListeners() {
+            document.getElementById('nav-list').addEventListener('click', e => { const l=e.target.closest('.nav-link'); if(l){ e.preventDefault(); state.activeSectionId=l.dataset.id; ui.render(); }});
+            document.getElementById('modal-container').addEventListener('input', e => { if (e.target.id === 'modal-value') ui.updateContrastCheck(e.target.value); });
+            document.getElementById('file-input').addEventListener('change', handleFileLoad);
+            document.body.addEventListener('input', e => { if(e.target.dataset.action === 'updateAnnotation') { const note = state.documentation.annotations.find(n => n.id == e.target.dataset.id); if(note) { note.text = e.target.value; saveStateToLocalStorage(); } } });
+            document.body.addEventListener('click', handleGlobalClick);
+            setupAnnotationDrag();
+            setupHeaderHiding();
+        }
+
+        function handleGlobalClick(e) {
+            const el = e.target;
+            const actionTarget = el.closest('[data-action]');
+            
+            if (state.annotationMode && !actionTarget && !el.closest('.annotation')) {
+                const newNote = {
+                    id: Date.now(),
+                    x: e.pageX,
+                    y: e.pageY,
+                    text: '',
+                    author: 'Team Member'
+                };
+                state.documentation.annotations.push(newNote);
+                saveAndRender();
+            }
+
+            if (!actionTarget) return;
+            
+            const action = actionTarget.dataset.action;
+            e.stopPropagation();
+
+            const type = actionTarget.dataset.type;
+            const index = actionTarget.dataset.index || el.closest('[data-index]')?.dataset.index;
+            const value = actionTarget.dataset.value;
+            const id = actionTarget.dataset.id;
+            
+            const actions = {
+                goHome: () => { state.activeSectionId = 'colors'; ui.render(); },
+                toggleAnnotations: () => { 
+                    state.annotationMode = !state.annotationMode; 
+                    document.body.style.cursor = state.annotationMode ? 'crosshair' : 'default'; 
+                    actionTarget.classList.toggle('bg-indigo-600', state.annotationMode);
+                    actionTarget.classList.toggle('text-white', state.annotationMode);
+                    ui.renderAnnotations(); 
+                },
+                save: () => { const dataStr = JSON.stringify(state.documentation, null, 2); const blob = new Blob([dataStr], {type: "application/json"}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'style-guide.json'; a.click(); URL.revokeObjectURL(a.href); utils.showToast('Documentation saved!'); },
+                load: () => document.getElementById('file-input').click(),
+                openModal: () => ui.openModal(type, index),
+                closeModal: () => ui.closeModal(),
+                delete: () => { if(confirm(`Are you sure you want to delete this ${type}?`)){ const key = type === 'typography' ? 'typography' : type + 's'; state.documentation[key].splice(state.currentEditingIndex, 1); saveAndRender(); ui.closeModal(); } },
+                saveData: () => {
+                    const isEditing = state.currentEditingIndex !== null;
+                    const data = {};
+                    const modal = document.querySelector('#modal-container [role="dialog"]');
+                    if(type === 'color'){ data.name = modal.querySelector('#modal-name').value; data.value = modal.querySelector('#modal-value').value; }
+                    if(type === 'typography'){ data.name = modal.querySelector('#modal-name').value; data.size = modal.querySelector('#modal-size').value; data.weight = modal.querySelector('#modal-weight').value; }
+                    if(type === 'component'){ data.name = modal.querySelector('#modal-name').value; data.preview = modal.querySelector('#modal-preview').value; data.code = modal.querySelector('#modal-code').value; }
+                    
+                    if(!data.name) { utils.showToast('Name field cannot be empty.', 'error'); return; }
+                    const key = type === 'typography' ? 'typography' : type + 's';
+                    if (isEditing) state.documentation[key][state.currentEditingIndex] = data;
+                    else state.documentation[key].push(data);
+                    saveAndRender(); ui.closeModal();
+                },
+                copyColor: () => utils.copyToClipboard(value),
+                copyCode: () => {
+                    const codeBlock = actionTarget.closest('.code-block-container');
+                    const code = codeBlock.querySelector('code').innerText;
+                    utils.copyToClipboard(code);
+                },
+                copyTextarea: () => {
+                    const targetId = actionTarget.dataset.targetId;
+                    const textarea = document.getElementById(targetId);
+                    if (textarea) {
+                        utils.copyToClipboard(textarea.value);
+                    }
+                },
+                deleteAnnotation: () => {
+                    state.documentation.annotations = state.documentation.annotations.filter(note => note.id != id);
+                    saveAndRender();
+                }
+            };
+            if(actions[action]) actions[action]();
+        }
+        
+        function setupAnnotationDrag() {
+            let draggedNote = null, offsetX = 0, offsetY = 0;
+            function startDrag(e) {
+                const note = e.target.closest('.annotation');
+                if (note && e.target.closest('.annotation-header')) {
+                    e.preventDefault();
+                    draggedNote = note; draggedNote.classList.add('opacity-75');
+                    const event = e.type === 'touchstart' ? e.touches[0] : e;
+                    const rect = draggedNote.getBoundingClientRect();
+                    offsetX = event.clientX - rect.left; offsetY = event.clientY - rect.top;
+                }
+            }
+            function drag(e) {
+                if (!draggedNote) return;
+                e.preventDefault();
+                const event = e.type === 'touchmove' ? e.touches[0] : e;
+                draggedNote.style.left = `${event.pageX - offsetX}px`;
+                draggedNote.style.top = `${event.pageY - offsetY}px`;
+            }
+            function endDrag() {
+                if (draggedNote) {
+                    const note = state.documentation.annotations.find(n => n.id == draggedNote.dataset.id);
+                    if(note) { note.x = parseInt(draggedNote.style.left); note.y = parseInt(draggedNote.style.top); saveStateToLocalStorage(); }
+                    draggedNote.classList.remove('opacity-75');
+                    draggedNote = null;
+                }
+            }
+            document.addEventListener('mousedown', startDrag); document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag);
+            document.addEventListener('touchstart', startDrag, { passive: false }); document.addEventListener('touchmove', drag, { passive: false }); document.addEventListener('touchend', endDrag);
+        }
+
+        function setupHeaderHiding() {
+            let lastScrollY = window.scrollY;
+            const header = document.getElementById('header');
+            window.addEventListener('scroll', () => {
+                header.classList.toggle('-translate-y-full', lastScrollY < window.scrollY && window.scrollY > 150);
+                lastScrollY = window.scrollY;
+            });
+        }
+        
+        function saveAndRender() { saveStateToLocalStorage(); ui.render(); }
+        function saveStateToLocalStorage() { localStorage.setItem('styleDocToolState', JSON.stringify(state.documentation)); }
+        function loadStateFromLocalStorage() {
+            const saved = localStorage.getItem('styleDocToolState');
+            if(saved) { try { state.documentation = JSON.parse(saved); } catch(e) { console.error("Error loading state:", e); } }
+        }
+
+        function handleFileLoad(e) {
+             const file = e.target.files[0]; if(!file) return;
+             const reader = new FileReader();
+             reader.onload = (ev) => { try { state.documentation = JSON.parse(ev.target.result); saveAndRender(); utils.showToast('File loaded!'); } catch { utils.showToast('Error: Invalid JSON file.', 'error'); }};
+             reader.readAsText(file);
+        }
+
+        function init() { 
+            document.documentElement.classList.add('dark');
+            loadStateFromLocalStorage(); 
+            ui.render(); 
+            setupEventListeners(); 
+        }
+
+        return { init };
+    })();
+
+    document.addEventListener('DOMContentLoaded', App.init);
+    </script>
+</body>
+</html>
