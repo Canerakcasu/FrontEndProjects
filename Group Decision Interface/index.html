@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Group Decision</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        /* General Style Settings - New Vacation Theme */
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #1e293b;
+            overflow: hidden; /* Prevent body scroll, allow main content to scroll */
+        }
+
+        /* Animated Gradient Background */
+        .animated-background {
+            background: linear-gradient(135deg, #a8e0ff, #fbc2eb, #fddfbb, #a8e0ff);
+            background-size: 400% 400%;
+            animation: gradientAnimation 25s ease infinite;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+
+        /* Style for the dragged element */
+        .dragging {
+            opacity: 0.6;
+            transform: scale(1.05) rotate(3deg);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            cursor: grabbing;
+        }
+
+        /* Style when hovering over the drop zone */
+        .drag-over {
+            transform: scale(1.02);
+            border-color: #0ea5e9;
+            background-color: rgba(14, 165, 233, 0.1);
+        }
+
+        /* Transition effect for vote cards */
+        .vote-card {
+            transition: background-color 0.5s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .vote-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+
+        /* Heatmap Colors - Adjusted for light theme */
+        .heatmap-0 { background-color: #f8fafc; border: 1px solid #e2e8f0; }
+        .heatmap-1 { background-color: #bae6fd; }
+        .heatmap-2 { background-color: #67e8f9; }
+        .heatmap-3 { background-color: #fdba74; }
+        .heatmap-4 { background-color: #fca5a5; }
+        .heatmap-5-plus { background-color: #f87171; }
+
+        /* Main poll card styles */
+        .poll-card-main {
+            background-color: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* Modal Styles */
+        .modal {
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    <div class="animated-background"></div>
+
+    <div id="app-container" class="w-full max-w-md mx-auto h-screen flex flex-col">
+
+        <!-- Header and User ID -->
+        <header class="text-center py-4 px-4 flex-shrink-0">
+            <h1 class="text-3xl font-bold text-slate-700">Group Decision ☀️</h1>
+            <p class="text-xs text-slate-500 mt-2">User ID: <span id="userId" class="font-mono"></span></p>
+            <button id="notifyBtn" class="mt-2 text-sm bg-indigo-500 text-white px-3 py-1 rounded-full hover:bg-indigo-600 transition-colors">Allow Notifications</button>
+        </header>
+
+        <!-- Polls Area with internal scroll -->
+        <main id="polls-area" class="flex-grow overflow-y-auto space-y-6 pb-6 px-4">
+            <!-- Primary Poll (Vacation Destination) -->
+            <div id="primary-poll-container"></div>
+            <!-- Secondary Poll (Dates) -->
+            <div id="secondary-poll-container"></div>
+        </main>
+
+        <!-- Results Modal -->
+        <div id="resultModal" class="modal fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 hidden z-50">
+            <div class="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl p-6 text-center w-full max-w-sm text-slate-800">
+                <div id="result-content">
+                    <h2 class="text-2xl font-bold text-amber-500">🎉 Decision Made! 🎉</h2>
+                    <p class="mt-2 text-slate-600">The winning option is:</p>
+                    <p id="winner-text" class="text-xl font-bold text-slate-900 my-4"></p>
+                    <h3 class="text-lg font-semibold mt-6 mb-2 text-slate-500">Final Tally:</h3>
+                    <div id="final-votes" class="space-y-2 text-left"></div>
+                </div>
+                 <button onclick="document.getElementById('resultModal').classList.add('hidden')" class="mt-6 bg-sky-500 text-white px-6 py-2 rounded-full font-semibold hover:bg-sky-600 transition-colors">Close</button>
+            </div>
+        </div>
+        
+        <!-- Loading Screen -->
+        <div id="loading-overlay" class="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
+             <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-sky-500"></div>
+             <p class="text-sky-600 mt-4 text-lg">Loading Polls...</p>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, updateDoc, arrayUnion, arrayRemove, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase & App Setup ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-group-decision-app';
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        let currentUserId = null;
+        let botSimDone = false;
+
+        // Element references
+        const primaryPollContainer = document.getElementById('primary-poll-container');
+        const secondaryPollContainer = document.getElementById('secondary-poll-container');
+        const userIdSpan = document.getElementById('userId');
+        const notifyBtn = document.getElementById('notifyBtn');
+        const resultModal = document.getElementById('resultModal');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        // Sample poll data - duration updated, flags removed
+        const pollsData = [
+            {
+                id: 'vacation-poll',
+                title: 'Where to for vacation?',
+                duration: 45, // seconds
+                container: primaryPollContainer,
+                options: [
+                    { id: 'greece', name: 'Sunny Greece', description: 'History meets the sea.' },
+                    { id: 'tokyo', name: 'Tokyo Adventure', description: 'Tech, culture, and cuisine.' },
+                    { id: 'kenya', name: 'Kenyan Safari', description: 'Journey into the wild.' },
+                    { id: 'cancun', name: 'Cancún Fiesta', description: 'Enjoy the Caribbean sun.' },
+                ]
+            },
+            {
+                id: 'trip-dates-poll',
+                title: 'When should we go?',
+                duration: 45, // seconds
+                container: secondaryPollContainer,
+                options: [
+                    { id: 'next-weekend', name: 'Next Weekend', description: 'A quick getaway.' },
+                    { id: 'early-july', name: 'Early July', description: 'About two weeks from now.' },
+                    { id: 'late-july', name: 'Late July', description: 'End of next month.' },
+                    { id: 'august', name: 'Sometime in August', description: 'Peak summer time.' },
+                ]
+            }
+        ];
+        
+        // --- Main Functions ---
+        
+        async function setupPollsInDB() {
+            console.log("Setting up polls in Firestore...");
+            for (const pollData of pollsData) {
+                const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, pollData.id);
+                const pollSnap = await getDoc(pollRef);
+                const isFinishedOrExpired = pollSnap.exists() && (pollSnap.data().isFinished || Date.now() > pollSnap.data().endTime);
+
+                if (!pollSnap.exists() || isFinishedOrExpired) {
+                     const action = pollSnap.exists() ? "Resetting" : "Creating";
+                     console.log(`${action} poll: ${pollData.id}`);
+                     
+                     const initialOptions = pollData.options.reduce((acc, opt) => {
+                        acc[opt.id] = { ...opt, votes: [] };
+                        return acc;
+                    }, {});
+
+                    await setDoc(pollRef, {
+                        title: pollData.title,
+                        options: initialOptions,
+                        endTime: Date.now() + pollData.duration * 1000,
+                        isFinished: false,
+                    });
+                }
+            }
+        }
+        
+        async function simulateBotVotes() {
+            if (botSimDone) return;
+            console.log("Simulating bot votes...");
+            const botIds = ['bot-user-1', 'bot-user-2', 'bot-user-3', 'bot-user-4'];
+            botSimDone = true; // Set flag immediately to prevent re-runs
+
+            for (const pollInfo of pollsData) {
+                const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, pollInfo.id);
+                try {
+                    const pollSnap = await getDoc(pollRef);
+                    if (pollSnap.exists()) {
+                        const pollData = pollSnap.data();
+                        const optionKeys = Object.keys(pollData.options);
+                        
+                        for (const botId of botIds) {
+                            const botHasVoted = Object.values(pollData.options).some(opt => opt.votes.includes(botId));
+                            if (!botHasVoted) {
+                                const randomOptionKey = optionKeys[Math.floor(Math.random() * optionKeys.length)];
+                                await updateDoc(pollRef, {
+                                    [`options.${randomOptionKey}.votes`]: arrayUnion(botId)
+                                });
+                            }
+                        }
+                    }
+                } catch (error) { console.error(`Error during bot sim for ${pollInfo.id}`, error); }
+            }
+        }
+        
+        // Renders all polls into their designated containers
+        function renderAllPolls() {
+            pollsData.forEach(pollInfo => {
+                pollInfo.container.innerHTML = `
+                    <div id="poll-${pollInfo.id}" class="poll-card-main rounded-2xl p-4 sm:p-6 h-full flex flex-col">
+                        <h2 class="text-xl sm:text-2xl font-bold text-center text-slate-800">${pollInfo.title}</h2>
+                        <div id="timer-${pollInfo.id}" class="text-center text-sky-600 font-mono text-lg my-3">--:--</div>
+                        <div id="drop-zone-${pollInfo.id}" class="flex-grow my-4 p-4 border-2 border-dashed border-slate-400 rounded-xl flex items-center justify-center transition-all duration-300">
+                            <p class="text-slate-500 text-center text-sm sm:text-base">Drag an option here to vote</p>
+                        </div>
+                        <div class="text-center mb-2 text-slate-600 font-semibold">Options</div>
+                        <div id="options-${pollInfo.id}" class="grid grid-cols-2 gap-3"></div>
+                    </div>
+                `;
+                listenToPoll(pollInfo.id);
+            });
+        }
+        
+        function listenToPoll(pollId) {
+            const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, pollId);
+            onSnapshot(pollRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    updatePollUI(pollId, docSnap.data());
+                } else {
+                    console.error(`Poll ${pollId} not found!`);
+                }
+            });
+        }
+        
+        function updatePollUI(pollId, pollData) {
+            const optionsContainer = document.getElementById(`options-${pollId}`);
+            const dropZone = document.getElementById(`drop-zone-${pollId}`);
+            if (!optionsContainer || !pollData.options) return;
+            
+            optionsContainer.innerHTML = '';
+            const userHasVoted = Object.values(pollData.options).some(opt => opt.votes.includes(currentUserId));
+            updateTimer(pollId, pollData.endTime);
+
+            if (pollData.isFinished) {
+                dropZone.innerHTML = `<p class="text-amber-500 font-bold">Voting Finished!</p>`;
+                if (!resultModal.classList.contains('hidden')) showResults(pollData);
+            } else {
+                 dropZone.innerHTML = `<p class="text-slate-500 text-center text-sm sm:text-base">${userHasVoted ? 'You have voted. Withdraw your vote to change it.' : 'Drag an option here to vote'}</p>`;
+            }
+
+            for (const optionId in pollData.options) {
+                const option = pollData.options[optionId];
+                const voteCount = option.votes.length;
+                const userVotedForThis = option.votes.includes(currentUserId);
+                const heatmapClass = `heatmap-${Math.min(voteCount, 5)}${voteCount > 5 ? '-plus' : ''}`;
+                
+                const card = document.createElement('div');
+                card.className = `vote-card p-3 rounded-lg shadow-sm cursor-grab transition-all duration-300 ${heatmapClass}`;
+                card.draggable = !pollData.isFinished && !userHasVoted;
+                card.dataset.pollId = pollId;
+                card.dataset.optionId = optionId;
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-start text-slate-800">
+                        <div class="flex-grow">
+                            <h4 class="font-bold text-sm sm:text-base">${option.name}</h4>
+                            <p class="text-xs text-slate-600">${option.description}</p>
+                        </div>
+                        <div class="ml-2 bg-black/10 rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                            ${voteCount}
+                        </div>
+                    </div>
+                    ${userVotedForThis ? `<button data-poll="${pollId}" data-option="${optionId}" class="unvote-btn mt-2 w-full text-xs bg-red-500 text-white px-2 py-1 rounded-full hover:bg-red-600">Withdraw Vote</button>` : ''}
+                `;
+                optionsContainer.appendChild(card);
+            }
+            
+            addDragAndDropListeners(pollId, pollData.isFinished, userHasVoted);
+            addUnvoteListeners();
+        }
+
+        let timers = {};
+        function updateTimer(pollId, endTime) {
+            const timerEl = document.getElementById(`timer-${pollId}`);
+            if (!timerEl) return;
+            if (timers[pollId]) clearInterval(timers[pollId]);
+
+            timers[pollId] = setInterval(async () => {
+                const remaining = endTime - Date.now();
+                if (remaining <= 0) {
+                    clearInterval(timers[pollId]);
+                    timerEl.textContent = "Time's Up!";
+                    const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, pollId);
+                    const pollDoc = await getDoc(pollRef);
+                    if (pollDoc.exists() && !pollDoc.data().isFinished) {
+                        await updateDoc(pollRef, { isFinished: true });
+                        showNotification('Voting has ended!', `Time to see the results for "${pollDoc.data().title}"`);
+                    }
+                } else {
+                    const minutes = Math.floor((remaining / 1000 / 60) % 60).toString().padStart(2, '0');
+                    const seconds = Math.floor((remaining / 1000) % 60).toString().padStart(2, '0');
+                    timerEl.textContent = `${minutes}:${seconds}`;
+                }
+            }, 1000);
+        }
+
+        function addDragAndDropListeners(pollId, isFinished, userHasVoted) {
+            const dropZone = document.getElementById(`drop-zone-${pollId}`);
+            const options = document.querySelectorAll(`[data-poll-id="${pollId}"].vote-card`);
+            if (isFinished || userHasVoted) { options.forEach(opt => opt.draggable = false); return; }
+
+            options.forEach(option => {
+                option.addEventListener('dragstart', (e) => {
+                    e.target.classList.add('dragging');
+                    e.dataTransfer.setData('application/json', JSON.stringify(e.target.dataset));
+                });
+                option.addEventListener('dragend', (e) => e.target.classList.remove('dragging'));
+            });
+
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+            dropZone.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                const data = JSON.parse(e.dataTransfer.getData('application/json'));
+                if (data.pollId !== pollId) return;
+
+                const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, data.pollId);
+                await updateDoc(pollRef, { [`options.${data.optionId}.votes`]: arrayUnion(currentUserId) });
+            });
+        }
+        
+        function addUnvoteListeners() {
+            document.querySelectorAll('.unvote-btn:not([data-listener-attached])').forEach(btn => {
+                btn.dataset.listenerAttached = 'true';
+                btn.addEventListener('click', async (e) => {
+                    const { poll, option } = e.target.dataset;
+                    const pollRef = doc(db, `artifacts/${appId}/public/data/polls`, poll);
+                    await updateDoc(pollRef, { [`options.${option}.votes`]: arrayRemove(currentUserId) });
+                });
+            });
+        }
+        
+        function showResults(pollData) {
+            const sortedOptions = Object.values(pollData.options).sort((a,b) => b.votes.length - a.votes.length);
+            const winner = sortedOptions[0];
+            document.getElementById('winner-text').textContent = winner ? winner.name : "No clear winner.";
+            
+            const finalVotesContainer = document.getElementById('final-votes');
+            finalVotesContainer.innerHTML = '';
+            
+            sortedOptions.forEach(opt => {
+                const voteCount = opt.votes.length;
+                const heatmapClass = `heatmap-${Math.min(voteCount, 5)}${voteCount > 5 ? '-plus' : ''}`;
+                finalVotesContainer.innerHTML += `
+                    <div class="flex justify-between items-center p-2 rounded-lg text-slate-800 ${heatmapClass}">
+                        <span class="font-semibold">${opt.name}</span>
+                        <span class="font-bold bg-black/10 rounded-full px-3 py-1 text-sm">${voteCount} votes</span>
+                    </div>
+                `;
+            });
+            resultModal.classList.remove('hidden');
+        }
+        
+        notifyBtn.addEventListener('click', () => {
+            if ("Notification" in window) {
+                Notification.requestPermission().then(p => {
+                    if (p === "granted") new Notification("Thanks!", { body: "You will be notified of results." });
+                });
+            }
+        });
+        function showNotification(title, body) {
+            if (Notification.permission === "granted") new Notification(title, { body });
+        }
+        
+        // --- Auth & Initialization ---
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                userIdSpan.textContent = currentUserId.substring(0, 8) + '...';
+                await setupPollsInDB();
+                renderAllPolls();
+                await simulateBotVotes();
+                loadingOverlay.classList.add('hidden');
+            }
+        });
+
+        (async function initializeAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed, trying anonymous.", error);
+                if (!auth.currentUser) await signInAnonymously(auth);
+            }
+        })();
+    </script>
+</body>
+</html>
